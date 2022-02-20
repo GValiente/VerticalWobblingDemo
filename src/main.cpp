@@ -46,11 +46,11 @@ namespace arm
             void* dest, const void* src, const uint16_t* map_cells, int num_tiles);
 }
 
-class flags_bg
+class flag_bg
 {
 
 public:
-    [[nodiscard]] static flags_bg create(const bn::regular_bg_item& bg_item)
+    [[nodiscard]] static flag_bg create(const bn::regular_bg_item& bg_item)
     {
         // Allocate tiles and maps needed for the background
         // The 2 multiplying here is because an 8bpp has double the size as two 4bpp tiles,
@@ -79,7 +79,7 @@ public:
 
         // Now, create the background
         bn::regular_bg_builder builder(bn::move(map));
-        return flags_bg(bg_item, builder.release_build());
+        return flag_bg(bg_item, builder.release_build());
     }
 
     [[nodiscard]] const bn::regular_bg_item& bg_item() const
@@ -143,7 +143,7 @@ private:
         return (data::wave_vertical_amplitude * bn::lut_sin(a & 2047)).round_integer();
     }
 
-    flags_bg(const bn::regular_bg_item& bg_item, bn::regular_bg_ptr&& bg) :
+    flag_bg(const bn::regular_bg_item& bg_item, bn::regular_bg_ptr&& bg) :
         _bg_item(&bg_item),
         _bg(bn::move(bg))
     {
@@ -188,24 +188,24 @@ int main()
 {
     bn::core::init();
 
-    flags_bg flags = flags_bg::create(bn::regular_bg_items::br_flag);
+    flag_bg flag = flag_bg::create(bn::regular_bg_items::br_flag);
 
     while(true)
     {
         // Toggle the flag when A is pressed
         if (bn::keypad::a_pressed())
         {
-            if(flags.bg_item() == bn::regular_bg_items::br_flag)
+            if(flag.bg_item() == bn::regular_bg_items::br_flag)
             {
-                flags.set_bg_item(bn::regular_bg_items::us_flag);
+                flag.set_bg_item(bn::regular_bg_items::us_flag);
             }
             else
             {
-                flags.set_bg_item(bn::regular_bg_items::br_flag);
+                flag.set_bg_item(bn::regular_bg_items::br_flag);
             }
         }
 
-        flags.update();
+        flag.update();
         bn::core::update();
     }
 }

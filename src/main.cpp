@@ -7,7 +7,6 @@
 #include "bn_core.h"
 #include "bn_math.h"
 #include "bn_keypad.h"
-#include "bn_vector.h"
 #include "bn_bg_palette_ptr.h"
 #include "bn_regular_bg_ptr.h"
 #include "bn_regular_bg_builder.h"
@@ -51,61 +50,46 @@ class flags_bg
 {
 
 public:
-    [[nodiscard]] static flags_bg create(
-            const bn::regular_bg_item& first_regular_bg_item, const bn::regular_bg_item& second_regular_bg_item)
+    [[nodiscard]] static flags_bg create(const bn::regular_bg_item& bg_item)
     {
         // Allocate tiles and maps needed for the background
         // The 2 multiplying here is because an 8bpp has double the size as two 4bpp tiles,
         // but the function accepts only 4bpp tiles, so we need to multiply
         bn::regular_bg_tiles_ptr tiles = bn::regular_bg_tiles_ptr::allocate(
                     2 * (2 * data::flag_tiles_needed + 1), bn::bpp_mode::BPP_8);
-        bn::bg_palette_ptr palette = first_regular_bg_item.palette_item().create_palette();
-        bn::vector<bn::regular_bg_map_ptr, 2> maps;
+        bn::bg_palette_ptr palette = bg_item.palette_item().create_palette();
 
-        // Create the maps
-        for (int i : { 0, 1 })
+        // Create the map and first fill it blank
+        bn::regular_bg_map_ptr map = bn::regular_bg_map_ptr::allocate(
+                    bn::size(32, 32), bn::move(tiles), bn::move(palette));
+        bn::span<bn::regular_bg_map_cell> vram = *map.vram();
+        bn::fill(vram.begin(), vram.end(), bn::regular_bg_map_cell());
+
+        // Fill in the map with the proper values
+        for(int x = 0; x < data::flag_width_tiles; x++)
         {
-            constexpr bn::size map_size(32, 32);
-
-            // Create the map and first fill it blank
-            bn::regular_bg_map_ptr map = bn::regular_bg_map_ptr::allocate(map_size, tiles, palette);
-            bn::span<bn::regular_bg_map_cell> vram = *map.vram();
-            bn::fill(vram.begin(), vram.end(), bn::regular_bg_map_cell());
-
-            // Fill in the map with the proper values
-            for (int x = 0; x < data::flag_width_tiles; x++)
+            for(int y = 0; y < data::flag_height_tiles + 2; y++)
             {
-                for (int y = 0; y < data::flag_height_tiles + 2; y++)
-                {
-                    int tile_x = data::flag_offset_x + x;
-                    int tile_y = data::flag_offset_y + y - 1;
-                    int tile_index = (data::flag_height_tiles + 2) * x + y;
-                    int map_cell = i * data::flag_tiles_needed + tile_index + 1;
-                    vram[32 * tile_y + tile_x] = bn::regular_bg_map_cell(map_cell);
-                }
+                int tile_x = data::flag_offset_x + x;
+                int tile_y = data::flag_offset_y + y - 1;
+                int tile_index = (data::flag_height_tiles + 2) * x + y;
+                vram[32 * tile_y + tile_x] = bn::regular_bg_map_cell(tile_index + 1);
             }
-
-            maps.push_back(bn::move(map));
         }
 
         // Now, create the background
-        bn::regular_bg_builder builder(maps[0]);
-        bn::regular_bg_ptr bg = builder.release_build();
-        return flags_bg(first_regular_bg_item, second_regular_bg_item, bn::move(maps), bn::move(bg));
+        bn::regular_bg_builder builder(bn::move(map));
+        return flags_bg(bg_item, builder.release_build());
     }
 
-    // Transfer the flag's data to the graphics
-    void switch_bg_item()
+    [[nodiscard]] const bn::regular_bg_item& bg_item() const
     {
-        if(_current_regular_bg_item == &_first_regular_bg_item)
-        {
-            _current_regular_bg_item = &_second_regular_bg_item;
-        }
-        else
-        {
-            _current_regular_bg_item = &_first_regular_bg_item;
-        }
+        return *_bg_item;
+    }
 
+    void set_bg_item(const bn::regular_bg_item& bg_item)
+    {
+        _bg_item = &bg_item;
         _transfer();
     }
 
@@ -127,7 +111,7 @@ public:
         constexpr int real_tiles_to_copy = (words_to_copy * sizeof(uint32_t)) / sizeof(bn::tile);
 
         // Here, do the "waving flag" displacement, copying the data to the second frame
-        for (int x = 0; x < data::flag_width_tiles; x++)
+        for(int x = 0; x < data::flag_width_tiles; x++)
         {
             // Multiply by 2 here to account that bn::tile represents one 4bpp tile,
             // and we need 2 bn::tiles for one 8bpp tile
@@ -147,10 +131,7 @@ public:
     }
 
 private:
-    const bn::regular_bg_item& _first_regular_bg_item;
-    const bn::regular_bg_item& _second_regular_bg_item;
-    const bn::regular_bg_item* _current_regular_bg_item;
-    bn::vector<bn::regular_bg_map_ptr, 2> _maps;
+    const bn::regular_bg_item* _bg_item;
     bn::regular_bg_ptr _bg;
     int _current_frame = 0;
 
@@ -162,12 +143,8 @@ private:
         return (data::wave_vertical_amplitude * bn::lut_sin(a & 2047)).round_integer();
     }
 
-    flags_bg(const bn::regular_bg_item& first_regular_bg_item, const bn::regular_bg_item& second_regular_bg_item,
-             bn::vector<bn::regular_bg_map_ptr, 2>&& maps, bn::regular_bg_ptr&& bg) :
-        _first_regular_bg_item(first_regular_bg_item),
-        _second_regular_bg_item(second_regular_bg_item),
-        _current_regular_bg_item(&first_regular_bg_item),
-        _maps(bn::move(maps)),
+    flags_bg(const bn::regular_bg_item& bg_item, bn::regular_bg_ptr&& bg) :
+        _bg_item(&bg_item),
         _bg(bn::move(bg))
     {
         _transfer();
@@ -177,7 +154,7 @@ private:
     void _transfer()
     {
         // Get the necessary data
-        const bn::regular_bg_item& flag_item = *_current_regular_bg_item;
+        const bn::regular_bg_item& flag_item = *_bg_item;
         int dst = _current_frame & 1;
         const bn::tile* flag_tiles_ptr = flag_item.tiles_item().tiles_ref().data();
         const bn::regular_bg_map_cell* flag_map_ptr = flag_item.map_item().cells_ptr();
@@ -186,7 +163,7 @@ private:
         bn::tile* dest_tiles_ptr = bg_tiles.vram()->data() + 2 * (dst * data::flag_tiles_needed + 1);
 
         // Now, transfer the tiles using a fast ASM routine
-        for (int x = 0; x < data::flag_width_tiles; x++)
+        for(int x = 0; x < data::flag_width_tiles; x++)
         {
             // The 2 needs to be here because bn::tile represents a 4bpp tile,
             // and a 8bpp tile is equivalent to two bn::tile
@@ -211,14 +188,21 @@ int main()
 {
     bn::core::init();
 
-    flags_bg flags = flags_bg::create(bn::regular_bg_items::br_flag, bn::regular_bg_items::us_flag);
+    flags_bg flags = flags_bg::create(bn::regular_bg_items::br_flag);
 
     while(true)
     {
         // Toggle the flag when A is pressed
         if (bn::keypad::a_pressed())
         {
-            flags.switch_bg_item();
+            if(flags.bg_item() == bn::regular_bg_items::br_flag)
+            {
+                flags.set_bg_item(bn::regular_bg_items::us_flag);
+            }
+            else
+            {
+                flags.set_bg_item(bn::regular_bg_items::br_flag);
+            }
         }
 
         flags.update();

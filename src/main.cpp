@@ -7,6 +7,7 @@
 #include "bn_core.h"
 #include "bn_math.h"
 #include "bn_keypad.h"
+#include "bn_vector.h"
 #include "bn_bg_palette_ptr.h"
 #include "bn_regular_bg_ptr.h"
 #include "bn_regular_bg_builder.h"
@@ -59,27 +60,38 @@ public:
                     2 * (2 * data::flag_tiles_needed + 1), bn::bpp_mode::BPP_8);
         bn::bg_palette_ptr palette = bg_item.palette_item().create_palette();
 
-        // Create the map and first fill it blank
-        bn::regular_bg_map_ptr map = bn::regular_bg_map_ptr::allocate(
-                    bn::size(32, 32), bn::move(tiles), bn::move(palette));
-        bn::span<bn::regular_bg_map_cell> vram = *map.vram();
-        bn::fill(vram.begin(), vram.end(), bn::regular_bg_map_cell());
+        // Create the maps
+        bn::vector<bn::regular_bg_map_ptr, 2> maps;
 
-        // Fill in the map with the proper values
-        for(int x = 0; x < data::flag_width_tiles; x++)
+        for(int i : { 0, 1 })
         {
-            for(int y = 0; y < data::flag_height_tiles + 2; y++)
+            constexpr bn::size map_size(32, 32);
+
+            // Create the map and first fill it blank
+            bn::regular_bg_map_ptr map = bn::regular_bg_map_ptr::allocate(map_size, tiles, palette);
+            bn::span<bn::regular_bg_map_cell> vram = *map.vram();
+            bn::fill(vram.begin(), vram.end(), bn::regular_bg_map_cell());
+
+            // Fill in the map with the proper values
+            for(int x = 0; x < data::flag_width_tiles; x++)
             {
-                int tile_x = data::flag_offset_x + x;
-                int tile_y = data::flag_offset_y + y - 1;
-                int tile_index = (data::flag_height_tiles + 2) * x + y;
-                vram[32 * tile_y + tile_x] = bn::regular_bg_map_cell(tile_index + 1);
+                for(int y = 0; y < data::flag_height_tiles + 2; y++)
+                {
+                    int tile_x = data::flag_offset_x + x;
+                    int tile_y = data::flag_offset_y + y - 1;
+                    int tile_index = (data::flag_height_tiles + 2) * x + y;
+                    int map_cell = i * data::flag_tiles_needed + tile_index + 1;
+                    vram[32 * tile_y + tile_x] = bn::regular_bg_map_cell(map_cell);
+                }
             }
+
+            maps.push_back(bn::move(map));
         }
 
         // Now, create the background
-        bn::regular_bg_builder builder(bn::move(map));
-        return flag_bg(bg_item, builder.release_build());
+        bn::regular_bg_builder builder(maps[0]);
+        bn::regular_bg_ptr bg = builder.release_build();
+        return flag_bg(bg_item, bn::move(bg), bn::move(maps));
     }
 
     [[nodiscard]] const bn::regular_bg_item& bg_item() const
@@ -128,11 +140,13 @@ public:
 
         // And update the current frame
         ++_current_frame;
+        _bg.set_map(_maps[dst]);
     }
 
 private:
     const bn::regular_bg_item* _bg_item;
     bn::regular_bg_ptr _bg;
+    bn::vector<bn::regular_bg_map_ptr, 2> _maps;
     int _current_frame = 0;
 
     // Get the waving flag displacement based on the position and time
@@ -143,9 +157,11 @@ private:
         return (data::wave_vertical_amplitude * bn::lut_sin(a & 2047)).round_integer();
     }
 
-    flag_bg(const bn::regular_bg_item& bg_item, bn::regular_bg_ptr&& bg) :
+    flag_bg(const bn::regular_bg_item& bg_item, bn::regular_bg_ptr&& bg,
+            bn::vector<bn::regular_bg_map_ptr, 2>&& maps) :
         _bg_item(&bg_item),
-        _bg(bn::move(bg))
+        _bg(bn::move(bg)),
+        _maps(bn::move(maps))
     {
         _transfer();
     }
@@ -193,7 +209,7 @@ int main()
     while(true)
     {
         // Toggle the flag when A is pressed
-        if (bn::keypad::a_pressed())
+        if(bn::keypad::a_pressed())
         {
             if(flag.bg_item() == bn::regular_bg_items::br_flag)
             {

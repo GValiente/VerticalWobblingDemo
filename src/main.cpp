@@ -6,11 +6,13 @@
 
 #include "bn_core.h"
 #include "bn_math.h"
+#include "bn_span.h"
 #include "bn_keypad.h"
 #include "bn_vector.h"
+#include "bn_optional.h"
 #include "bn_bg_palette_ptr.h"
 #include "bn_regular_bg_ptr.h"
-#include "bn_regular_bg_builder.h"
+#include "bn_regular_bg_map_ptr.h"
 #include "bn_regular_bg_tiles_ptr.h"
 
 #include "bn_regular_bg_items_br_flag.h"
@@ -89,8 +91,7 @@ public:
         }
 
         // Now, create the background
-        bn::regular_bg_builder builder(maps[0]);
-        bn::regular_bg_ptr bg = builder.release_build();
+        bn::regular_bg_ptr bg = bn::regular_bg_ptr::create(0, 0, maps[0]);
         return flag_bg(bg_item, bn::move(bg), bn::move(maps));
     }
 
